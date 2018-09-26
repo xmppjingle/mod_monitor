@@ -66,7 +66,7 @@ accept(Id, Max, Period) ->
                         C when C < 0 -> 0;
                         C -> C
                     end,
-                    lager:debug("monitor updated id=<~p>; from ~p to ~p", [Id, Counter, NC]),
+                    % lager:debug("monitor updated id=<~p>; from ~p to ~p", [Id, Counter, NC]),
                     mnesia:dirty_write(monitor, N#monitor{counter=NC, timestamp=os:timestamp()}),
                     NC =< Max;
                 true ->
