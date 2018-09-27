@@ -22,6 +22,9 @@
 %@doc Init the monitor. Adds the JIDs to the whitelist.
 %@end
 init(Whitelist) ->
+    application:start(mnesia),
+    mnesia:create_table(monitor,
+                        [{attributes, record_info(fields, monitor)}]),
     prepare_whitelist(Whitelist).
 
 -spec prepare_whitelist( L :: list(binary()) ) -> ok.
