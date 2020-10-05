@@ -12,7 +12,7 @@
 %%-------------------------------------------------------------------
 -module(mod_monitor).
 
--export([init/1, accept/3]).
+-export([init/1, accept/3, soft_accept/3, reset/1, get_node/1]).
 
 -define(WLIST_TABLE, mmwl).
 
@@ -22,7 +22,7 @@
 %@doc Init the monitor. Adds the JIDs to the whitelist.
 %@end
 init(Whitelist) ->
-    application:start(mnesia),
+    application:ensure_all_started(mnesia),
     mnesia:create_table(monitor,
                         [{attributes, record_info(fields, monitor)}]),
     prepare_whitelist(Whitelist).
@@ -53,7 +53,7 @@ is_white(K) ->
 
 -spec accept( Id :: string(), Max :: integer(), Period :: integer() ) -> boolean().
 %@doc Check if the packet can be accepted. It depends if ID is whitelisted,
-%     and the Max packets can be accepted in the Period seconds.
+%     and the Max packets can be accepted in the Period seconds. With cumulative counter if limit is exceeded. 
 %@end
 accept(Id, Max, Period) ->
     case is_white(Id) of
@@ -69,7 +69,6 @@ accept(Id, Max, Period) ->
                         C when C < 0 -> 0;
                         C -> C
                     end,
-                    % lager:debug("monitor updated id=<~p>; from ~p to ~p", [Id, Counter, NC]),
                     mnesia:dirty_write(monitor, N#monitor{counter=NC, timestamp=os:timestamp()}),
                     NC =< Max;
                 true ->
@@ -77,6 +76,43 @@ accept(Id, Max, Period) ->
                     Counter =< Max
             end
     end.
+
+-spec soft_accept( Id :: string(), Max :: integer(), Period :: integer() ) -> boolean().
+%@doc Check if the packet can be accepted. It depends if ID is whitelisted,
+%     and the Max packets can be accepted in the Period seconds. If the packets exceeds the limit the counter is not updated.
+%@end
+soft_accept(Id, Max, Period) ->
+    case is_white(Id) of
+        true ->
+            true;
+        false ->
+            N = get_node(Id),
+            Counter = N#monitor.counter+1,
+            D = (timer:now_diff(os:timestamp(), N#monitor.timestamp)) / 1000000,
+            NewCounter = if 
+                D > Period ->
+                    NC = case Counter - Max * trunc(D / Period + 1) of
+                        C when C < 0 -> 1;
+                        C -> C
+                    end,
+                    NC;
+                true -> 
+                    Counter
+            end,
+            case NewCounter =< Max of
+                true ->
+                    mnesia:dirty_write(monitor, N#monitor{counter=NewCounter, timestamp=os:timestamp()}),
+                    true;
+                _ -> 
+                    false
+            end
+    end.
+
+-spec reset( Id :: string() ) -> boolean().
+%@doc Resets a counter.
+%@end
+reset(Id) ->
+    mnesia:dirty_write(monitor, #monitor{id=Id, counter=0, timestamp=os:timestamp()}).
 
 -spec get_node( Id :: string() ) -> #monitor{}.
 %@doc Get node information about monitor. If the node doesn't exists 
