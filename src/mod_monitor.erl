@@ -12,11 +12,11 @@
 %%-------------------------------------------------------------------
 -module(mod_monitor).
 
--export([init/1, accept/3, soft_accept/3, reset/1, get_node/1]).
+-export([init/1, accept/3, soft_accept/3, soft_accept/4, reset/1, get_node/1, trigger/2]).
 
 -define(WLIST_TABLE, mmwl).
 
--record(monitor, {id, counter, timestamp}).
+-record(monitor, {id, counter, timestamp, notify}).
 
 -spec init( Whitelist :: list(binary()) ) -> ok.
 %@doc Init the monitor. Adds the JIDs to the whitelist.
@@ -82,6 +82,8 @@ accept(Id, Max, Period) ->
 %     and the Max packets can be accepted in the Period seconds. If the packets exceeds the limit the counter is not updated.
 %@end
 soft_accept(Id, Max, Period) ->
+    soft_accept(Id, Max, Period, undefined).
+soft_accept(Id, Max, Period, Notify) ->
     case is_white(Id) of
         true ->
             true;
@@ -104,9 +106,28 @@ soft_accept(Id, Max, Period) ->
                     mnesia:dirty_write(monitor, N#monitor{counter=NewCounter, timestamp=os:timestamp()}),
                     true;
                 _ -> 
+                    notify(Notify, Period, N),
                     false
             end
     end.
+
+-spec notify( PID :: pid(), Period :: integer, Monitor :: #monitor{} ) -> ok|error.
+%@doc Schedules a notification when counter clears up.
+%@end
+notify(PID, Period, #monitor{notify = undefined, timestamp = T} = Monitor) when PID /= undefined -> 
+    Delay = ( Period * 1000 ) - trunc(timer:now_diff(os:timestamp(), T) / 1000),
+    case timer:apply_after(Delay, ?MODULE, trigger, [PID, Monitor]) of
+        {ok, Timer} -> 
+            mnesia:dirty_write(monitor, Monitor#monitor{notify = Timer});
+        _Error ->
+            error
+    end;
+notify(_PID, _Period, #monitor{notify = _} = _Monitor) -> ok.
+
+trigger(PID, Monitor) ->
+    N = get_node(Monitor#monitor.id),
+    mnesia:dirty_write(monitor, N#monitor{notify = undefined}),
+    PID ! {clear, Monitor}.
 
 -spec reset( Id :: string() ) -> boolean().
 %@doc Resets a counter.
