@@ -16,7 +16,7 @@
 
 -define(WLIST_TABLE, mmwl).
 
--record(monitor, {id, counter, timestamp, notify}).
+-include("../include/mod_monitor.hrl").
 
 -spec init( Whitelist :: list(binary()) ) -> ok.
 %@doc Init the monitor. Adds the JIDs to the whitelist.
@@ -127,6 +127,11 @@ notify(_PID, _Period, #monitor{notify = _} = _Monitor) -> ok.
 trigger(PID, Monitor) ->
     N = get_node(Monitor#monitor.id),
     mnesia:dirty_write(monitor, N#monitor{notify = undefined}),
+    trigger_(PID, Monitor).
+
+trigger_(Fun, Monitor) when is_function(Fun) ->
+    Fun(Monitor);
+trigger_(PID, Monitor) ->
     PID ! {clear, Monitor}.
 
 -spec reset( Id :: string() ) -> boolean().
